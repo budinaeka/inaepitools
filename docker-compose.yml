@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  inaepitools:
+    # Jika menggunakan image yang sudah di-push ke registry (misal Docker Hub)
+    # image: username/inaepitools:latest
+    
+    # Jika build langsung dari source code (misal via Git di Portainer)
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    
+    container_name: inaepitools
+    restart: unless-stopped
+    
+    # Mapping port host:container
+    ports:
+      - "3838:3838"
+    
+    # Mapping volume untuk persistensi logs (opsional)
+    volumes:
+      - shiny_logs:/var/log/shiny-server
+    
+    # Environment variables (jika diperlukan di masa depan)
+    environment:
+      - SHINY_LOG_LEVEL=INFO
+
+volumes:
+  shiny_logs:
