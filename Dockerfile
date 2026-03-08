@@ -1,9 +1,9 @@
 # Base R Shiny image
 FROM rocker/shiny:latest
 
-# Install system libraries required by R packages (e.g., sf, leaflet)
-# - libgdal-dev, libgeos-dev, libproj-dev, libudunits2-dev: Required for sf/spatial packages
-# - libssl-dev, libxml2-dev, libcurl4-openssl-dev: Common R package dependencies
+# Install system libraries required by R packages
+# Added: libfontconfig1-dev, libharfbuzz-dev, libfribidi-dev, libfreetype6-dev, libpng-dev, libtiff5-dev, libjpeg-dev
+# These are often required by 'systemfonts', 'textshaping', 'ragg' which are dependencies of modern ggplot2/pkgdown
 RUN apt-get update && apt-get install -y \
     libgdal-dev \
     libgeos-dev \
@@ -12,6 +12,13 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libxml2-dev \
     libcurl4-openssl-dev \
+    libfontconfig1-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libtiff5-dev \
+    libjpeg-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -38,9 +45,13 @@ RUN rm -rf /srv/shiny-server/*
 
 # Copy application code
 COPY app.R /srv/shiny-server/
+COPY dummy_pmk.csv /srv/shiny-server/
 
-# Copy install script just in case, though packages are already installed
-COPY install_packages.R /srv/shiny-server/
+# Copy custom configuration
+COPY shiny-server.conf /etc/shiny-server/shiny-server.conf
+
+# Ensure permissions are correct
+RUN chown -R shiny:shiny /srv/shiny-server
 
 # Expose port 3838
 EXPOSE 3838
