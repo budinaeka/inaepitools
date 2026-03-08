@@ -25,7 +25,9 @@ ui <- page_navbar(
           tags$li("Manajemen Data: Upload dan eksplorasi data."),
           tags$li("Analisis Deskriptif: Ringkasan statistik."),
           tags$li("Kalkulator Epidemiologi: OR/RR, Ukuran Sampel, Uji Diagnostik."),
-          tags$li("Visualisasi: Grafik tren dan peta sebaran (Coming Soon).")
+          tags$li("Uji Asosiasi: Uji statistik bivariat."),
+          tags$li("Regresi Logistik: Analisis multivariabel."),
+          tags$li("Visualisasi: Grafik tren dan peta sebaran.")
         )
       )
     )
@@ -33,8 +35,8 @@ ui <- page_navbar(
   
   # Halaman Manajemen Data
   nav_panel(title = "Manajemen Data",
-    sidebar_layout(
-      sidebar_panel(
+    sidebarLayout(
+      sidebarPanel(
         fileInput("file_upload", "Upload Data (CSV/Excel)",
                   accept = c(".csv", ".xlsx")),
         helpText("Pastikan format data sesuai. Baris pertama adalah header."),
@@ -43,7 +45,7 @@ ui <- page_navbar(
                      choices = c(Koma = ",", TitikKoma = ";", Tab = "\t"),
                      selected = ",")
       ),
-      main_panel(
+      mainPanel(
         card(
           card_header("Pratinjau Data"),
           DTOutput("data_preview")
@@ -58,12 +60,12 @@ ui <- page_navbar(
 
   # Halaman Analisis Deskriptif
   nav_panel(title = "Analisis Deskriptif",
-    sidebar_layout(
-      sidebar_panel(
+    sidebarLayout(
+      sidebarPanel(
         selectInput("var_desc", "Pilih Variabel:", choices = NULL),
         actionButton("run_desc", "Jalankan Analisis", class = "btn-primary")
       ),
-      main_panel(
+      mainPanel(
         card(
           card_header("Statistik Deskriptif"),
           verbatimTextOutput("desc_stats")
@@ -104,8 +106,8 @@ ui <- page_navbar(
       
       # Tab Ukuran Sampel
       tabPanel("Ukuran Sampel",
-        sidebar_layout(
-          sidebar_panel(
+        sidebarLayout(
+          sidebarPanel(
             selectInput("ss_type", "Tipe Studi:", 
                         choices = c("Estimasi Proporsi" = "prop", "Estimasi Rata-rata" = "mean")),
             conditionalPanel(
@@ -121,7 +123,7 @@ ui <- page_navbar(
             numericInput("ss_conf", "Tingkat Kepercayaan (Confidence Level)", value = 0.95, min = 0, max = 1, step = 0.01),
             actionButton("calc_ss", "Hitung Sampel", class = "btn-info")
           ),
-          main_panel(
+          mainPanel(
             card(
               card_header("Hasil Perhitungan Sampel"),
               verbatimTextOutput("ss_output")
@@ -156,8 +158,8 @@ ui <- page_navbar(
   
   # Halaman Uji Asosiasi
   nav_panel(title = "Uji Asosiasi",
-    sidebar_layout(
-      sidebar_panel(
+    sidebarLayout(
+      sidebarPanel(
         helpText("Pastikan data sudah diupload di menu 'Manajemen Data'."),
         selectInput("assoc_y", "Variabel Outcome (Y):", choices = NULL),
         selectInput("assoc_x", "Variabel Exposure (X):", choices = NULL),
@@ -169,7 +171,7 @@ ui <- page_navbar(
                                 "Korelasi (Num vs Num)" = "cor")),
         actionButton("run_assoc", "Jalankan Uji", class = "btn-danger")
       ),
-      main_panel(
+      mainPanel(
         card(
           card_header("Hasil Uji Statistik"),
           verbatimTextOutput("assoc_output")
@@ -181,18 +183,40 @@ ui <- page_navbar(
       )
     )
   ),
+
+  # Halaman Regresi Logistik
+  nav_panel(title = "Regresi Logistik",
+    sidebarLayout(
+      sidebarPanel(
+        helpText("Analisis Multivariabel (Generalized Linear Model - Binomial)"),
+        selectInput("logreg_y", "Variabel Outcome (Y) [Harus Biner/Kategorik 2 Level]:", choices = NULL),
+        selectInput("logreg_x", "Variabel Prediktor (X):", choices = NULL, multiple = TRUE),
+        actionButton("run_logreg", "Jalankan Model", class = "btn-success")
+      ),
+      mainPanel(
+        card(
+          card_header("Ringkasan Model (Odds Ratio)"),
+          DTOutput("logreg_or_table")
+        ),
+        card(
+          card_header("Detail Model Statistik"),
+          verbatimTextOutput("logreg_summary")
+        )
+      )
+    )
+  ),
   
   # Halaman Peta Sebaran (GIS)
   nav_panel(title = "Peta Sebaran",
-    sidebar_layout(
-      sidebar_panel(
+    sidebarLayout(
+      sidebarPanel(
         helpText("Pastikan data memiliki kolom Latitude dan Longitude."),
         selectInput("map_lat", "Latitude:", choices = NULL),
         selectInput("map_lon", "Longitude:", choices = NULL),
         # selectInput("map_color", "Warna Berdasarkan:", choices = NULL), # Fitur masa depan
         actionButton("plot_map", "Tampilkan Peta", class = "btn-primary")
       ),
-      main_panel(
+      mainPanel(
         card(
           card_header("Peta Interaktif"),
           leafletOutput("gis_map", height = "600px")
@@ -245,13 +269,15 @@ server <- function(input, output, session) {
     str(uploaded_data())
   })
   
-  # Update Variable Choices for Descriptive Analysis and Association
+  # Update Variable Choices
   observe({
     req(uploaded_data())
     cols <- names(uploaded_data())
     updateSelectInput(session, "var_desc", choices = cols)
     updateSelectInput(session, "assoc_x", choices = cols)
     updateSelectInput(session, "assoc_y", choices = cols)
+    updateSelectInput(session, "logreg_y", choices = cols)
+    updateSelectInput(session, "logreg_x", choices = cols)
     
     # Try to guess lat/lon
     lat_guess <- grep("lat", cols, ignore.case = TRUE, value = TRUE)
@@ -303,19 +329,9 @@ server <- function(input, output, session) {
   
   risk_result <- eventReactive(input$calc_risk, {
     # Construct 2x2 matrix
-    # Format: 
-    #       Disease +   Disease -
-    # Exp +    a           b
-    # Exp -    c           d
     dat <- matrix(c(input$a, input$b, input$c, input$d), nrow = 2, byrow = TRUE)
     colnames(dat) <- c("Dis+", "Dis-")
     rownames(dat) <- c("Exp+", "Exp-")
-    
-    # Calculate using epi.2by2
-    # Note: epi.2by2 expects: 
-    #            Outcome +    Outcome -
-    #   Exp +      a            b
-    #   Exp -      c            d
     
     res <- epi.2by2(dat = dat, method = input$risk_method, conf.level = 0.95)
     list(matrix = dat, result = res)
@@ -333,20 +349,6 @@ server <- function(input, output, session) {
   
   ss_result <- eventReactive(input$calc_ss, {
     if(input$ss_type == "prop") {
-      # Sample size for population proportion
-      # Using simple formula n = Z^2 * P * (1-P) / d^2
-      # Or standard epiR if available. epi.sssimpleestb is deprecated in some versions, check docs.
-      # Let's use base R formula or check epiR documentation availability.
-      # epiR::epi.sssimpleestb (Simple random sampling)
-      # Arguments: N (pop size, Inf), Py (proportion), epsilon (absolute precision), error (conf level)
-      
-      # Wait, epiR functions change names often. Let's stick to standard formula for robustness if epiR fails,
-      # but user asked for epiR. 
-      # epi.sssimpleestb(N = Inf, Py = input$ss_p, epsilon = input$ss_d, error = 1 - input$ss_conf)
-      
-      # Let's try to use a safer generic formula if we are not sure about specific epiR version installed
-      # But let's assume standard epiR.
-      
       z <- qnorm(1 - (1 - input$ss_conf)/2)
       n <- (z^2 * input$ss_p * (1 - input$ss_p)) / (input$ss_d^2)
       return(paste("Estimasi Ukuran Sampel (Simple Random Sampling):\n",
@@ -380,7 +382,6 @@ server <- function(input, output, session) {
     colnames(dat) <- c("Dis+", "Dis-")
     rownames(dat) <- c("Test+", "Test-")
     
-    # epi.tests for diagnostic test evaluation
     res <- epi.tests(dat, conf.level = 0.95)
     res
   })
@@ -481,6 +482,57 @@ server <- function(input, output, session) {
     }
     
     ggplotly(p)
+  })
+  
+  # --- Regresi Logistik ---
+  
+  logreg_model <- eventReactive(input$run_logreg, {
+    req(uploaded_data(), input$logreg_y, input$logreg_x)
+    df <- uploaded_data()
+    
+    # Formula construction
+    f <- as.formula(paste(input$logreg_y, "~", paste(input$logreg_x, collapse = "+")))
+    
+    # Ensure Y is factor/binary
+    # Try to convert to factor if character
+    if(is.character(df[[input$logreg_y]])) {
+      df[[input$logreg_y]] <- as.factor(df[[input$logreg_y]])
+    }
+    
+    tryCatch({
+      model <- glm(f, data = df, family = binomial)
+      return(model)
+    }, error = function(e) {
+      return(NULL)
+    })
+  })
+  
+  output$logreg_summary <- renderPrint({
+    model <- logreg_model()
+    if(is.null(model)) {
+      print("Gagal menjalankan model. Pastikan variabel Y adalah biner (0/1 atau Factor 2 level) dan tidak ada missing values yang fatal.")
+    } else {
+      summary(model)
+    }
+  })
+  
+  output$logreg_or_table <- renderDT({
+    model <- logreg_model()
+    req(model)
+    
+    # Calculate OR and CI
+    or <- exp(coef(model))
+    ci <- exp(confint.default(model)) # Use default for speed/stability
+    
+    res_df <- data.frame(
+      Variable = names(or),
+      OR = round(or, 3),
+      Lower_95_CI = round(ci[,1], 3),
+      Upper_95_CI = round(ci[,2], 3),
+      P_Value = round(summary(model)$coefficients[,4], 4)
+    )
+    
+    datatable(res_df, options = list(pageLength = 10, scrollX = TRUE))
   })
   
   # --- Peta Sebaran (GIS) ---
