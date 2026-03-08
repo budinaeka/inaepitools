@@ -22,23 +22,17 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install R packages
-# Using a fixed CRAN mirror for reproducibility
-RUN R -e "install.packages(c( \
-    'shiny', \
-    'bslib', \
-    'dplyr', \
-    'ggplot2', \
-    'DT', \
-    'plotly', \
-    'readxl', \
-    'epiR', \
-    'sf', \
-    'leaflet', \
-    'rmarkdown', \
-    'knitr', \
-    'e1071' \
-), repos='https://cran.rstudio.com/')"
+# Install R packages separately to isolate failures
+# 1. Core packages
+RUN R -e "install.packages(c('shiny', 'bslib', 'dplyr', 'ggplot2', 'DT', 'plotly', 'readxl', 'rmarkdown', 'knitr', 'e1071'), repos='https://cran.rstudio.com/')"
+
+# 2. Spatial packages (heavy dependencies)
+RUN R -e "install.packages(c('sf', 'leaflet'), repos='https://cran.rstudio.com/')"
+
+# 3. EpiR and its dependencies (often fails due to survival/Exact/etc)
+# Install dependencies explicitly first to ensure they are present
+RUN R -e "install.packages(c('survival', 'BiasedUrn', 'pROC'), repos='https://cran.rstudio.com/')"
+RUN R -e "install.packages('epiR', repos='https://cran.rstudio.com/')"
 
 # Remove default shiny app
 RUN rm -rf /srv/shiny-server/*
